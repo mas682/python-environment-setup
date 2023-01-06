@@ -28,16 +28,14 @@ inputs:
     required: false
     default: "ubuntu-latest-poetry"
   
-  
-
 runs:
   using: "composite"
   steps:
     # you may be able to do this once this is in its own repo
-    #- name: Environment setup - Checkout Branch
-    #  id: checkout-branch
-    #  continue-on-error: ${{ inputs.continue-on-error }}
-    #  uses: actions/checkout@v3  
+    - name: Environment setup - Checkout Branch
+      id: checkout-branch
+      continue-on-error: ${{ inputs.continue-on-error }}
+      uses: actions/checkout@v3  
       
     - name: Move poetry files to root
       shell: bash
@@ -47,7 +45,7 @@ runs:
         POETRY_LOCK_FILE: ${{ inputs.poetry_lock_file }}
       continue-on-error: ${{ inputs.continue-on-error == 'true'}}
       # only uncomment this if you can do the first step
-      #if: steps.checkout-branch.outcome == 'success'
+      if: steps.checkout-branch.outcome == 'success'
       run: |
         mv $TOML_FILE .
         mv $POETRY_LOCK_FILE .
