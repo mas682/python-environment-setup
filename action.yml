@@ -1,0 +1,119 @@
+name: Environment setup
+branding:
+  icon: '	chevrons-down'
+  color: 'blue'
+Description: Environment setup test
+inputs:
+  continue-on-error:
+    description: "Determines if the job should be marked as a successful if a step fails"
+    required: false
+    default: 'false'
+  toml_file:
+    description: "Path to the .toml file"
+    required: true
+  poetry_lock_file:
+    description: "Path to the poetry lock file"
+    required: true
+  poetry_version_file:
+    description: "Path to poetry version json file"
+    required: true
+  python_version_file:
+    description: "Path to python version json file"
+    required: true
+  GITHUB_TOKEN:
+    descripiton: "Github token"
+    required: true
+  poetry-cache-prefix:
+    description: "Prefix to use for the poetry cache"
+    required: false
+    default: "ubuntu-latest-poetry"
+  
+  
+
+runs:
+  using: "composite"
+  steps:
+    # you may be able to do this once this is in its own repo
+    #- name: Environment setup - Checkout Branch
+    #  id: checkout-branch
+    #  continue-on-error: ${{ inputs.continue-on-error }}
+    #  uses: actions/checkout@v3  
+      
+    - name: Move poetry files to root
+      shell: bash
+      id: move-poetry-files
+      env: 
+        TOML_FILE: ${{ inputs.toml_file }}
+        POETRY_LOCK_FILE: ${{ inputs.poetry_lock_file }}
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      # only uncomment this if you can do the first step
+      #if: steps.checkout-branch.outcome == 'success'
+      run: |
+        mv $TOML_FILE .
+        mv $POETRY_LOCK_FILE .
+
+    - name: Check poetry cache
+      uses: actions/cache@v3
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      id: cache-poetry
+      if: steps.move-poetry-files.outcome == 'success'
+      with:
+        path: |
+          /opt/pipx/venvs/poetry 
+          /opt/pipx_bin/poetry
+        key: ${{ inputs.poetry-cache-prefix }}-${{ hashFiles(inputs.poetry_version_file) }}
+
+    - name: Get poetry version
+      shell: bash
+      id: poetry-version
+      env:
+        POETRY_VERSION_FILE: ${{ inputs.poetry_version_file }}
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      if: steps.cache-poetry.outcome == 'success'
+      run: echo POETRY_VERSION=$(jq -r '.poetry.version' $POETRY_VERSION_FILE) >> $GITHUB_ENV
+    
+    # pipx does not work with act
+    - name: Install poetry
+      shell: bash
+      id: install-poetry
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      if: steps.poetry-version.outcome == 'success' && steps.cache-poetry.outputs.cache-hit != 'true'
+      run: pipx install poetry==$POETRY_VERSION
+      
+    - name: Get python version
+      shell: bash
+      id: get-python-version
+      env:
+        PYTHON_VERSION_FILE: ${{ inputs.python_version_file }}
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      if: |
+        steps.install-poetry.outcome == 'success' || 
+        (steps.cache-poetry.outputs.cache-hit == 'true' && steps.poetry-version.outcome == 'success')
+      run: echo PYTHON_VERSION=$(jq -r '.python.version' $PYTHON_VERSION_FILE) >> $GITHUB_OUTPUT     
+
+    - name: Install Python
+      id: python
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      if: steps.get-python-version.outcome == 'success'
+      uses: actions/setup-python@v4.4.0
+      with:
+        python-version: ${{ steps.get-python-version.outputs.PYTHON_VERSION }}
+        cache: 'poetry'
+        # you may want to extract this from the poetry_lock_file input variable
+        cache-dependency-path: '**/poetry.lock'
+        # may want to make this optional
+        token: ${{ inputs.GITHUB_TOKEN }} 
+
+    - name: Show poetry Config
+      shell: bash
+      id: poetry-config
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      if: steps.python.outcome == 'success'
+      run: poetry env info
+      
+    - name: Install poetry dependencies
+      shell: bash
+      id: install-poetry-dependencies
+      continue-on-error: ${{ inputs.continue-on-error == 'true'}}
+      if: steps.poetry-config.outcome == 'success' && steps.python.outputs.cache-hit != 'true'
+      run: poetry install
